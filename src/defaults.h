@@ -1,5 +1,5 @@
 // Replace with your MQTT Broker address
-#define DEFAULT_MQTT_HOST "mqtt.z13.org"
+#define DEFAULT_MQTT_HOST "anxpi.fritz.box"
 
 // Replace with your MQTT Broker port
 #define DEFAULT_MQTT_PORT 1883

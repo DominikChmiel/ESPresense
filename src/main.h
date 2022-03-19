@@ -24,8 +24,6 @@
 #include <freertos/timers.h>
 #include <rom/rtc.h>
 
-#ifdef SENSORS
-#include <DHTesp.h>
 #include <Wire.h>
 // I2C
 int I2C_Bus_1_SDA;
@@ -38,30 +36,15 @@ bool I2C_Bus_2_Enabled;
 
 unsigned long sensorInterval = 60000;
 
-//GY-302 lux sensor
-#include <hp_BH1750.h>
-hp_BH1750 BH1750;
-unsigned long ms_BH1750;
-float lux_BH1750;
-int lux_BH1750_MQTT;
-String BH1750_I2c;
-int BH1750_I2c_Bus;
 
 //I2C BME280 sensor
-#include <Adafruit_BME280.h>
-Adafruit_BME280 BME280;
+#include "bme280_aggregator.hpp"
+BME280Aggregator bme;
 long BME280_status;
 String BME280_I2c;
 int BME280_I2c_Bus;
 unsigned long bme280PreviousMillis = 0;
 
-//I2C TSL2561 sensor
-#include <Adafruit_TSL2561_U.h>
-String TSL2561_I2c;
-int TSL2561_I2c_Bus;
-String TSL2561_I2c_Gain;
-unsigned long tsl2561PreviousMillis = 0;
-#endif
 
 static const char *const EC_DIAGNOSTIC = "diagnostic";
 static const char *const EC_CONFIG = "config";
@@ -89,33 +72,7 @@ String room, id, statusTopic, teleTopic, roomsTopic, setTopic;
 bool autoUpdate, arduinoOta, prerelease;
 bool discovery, activeScan, publishTele, publishRooms, publishDevices;
 
-#ifdef SENSORS
 
-uint8_t dht11Pin;
-uint8_t dht22Pin;
-float dhtTempOffset;
-
-/** Initialize DHT sensor 1 */
-DHTesp dhtSensor;
-
-/** Task handle for the light value read task */
-TaskHandle_t dhtTempTaskHandle = NULL;
-
-/** Ticker for temperature reading */
-Ticker tempTicker;
-
-/** Flags for temperature readings finished */
-bool gotNewTemperature = false;
-
-/** Data from dht sensor 1 */
-TempAndHumidity dhtSensorData;
-
-/* Flag if main loop is running */
-bool dhtTasksEnabled = false;
-
-/* update time */
-int dhtUpdateTime = 10; //ToDo: maybe make this a user choise via settings menu
-#endif
 BleFingerprintCollection fingerprints;
 
 String resetReason(RESET_REASON reason)
@@ -412,73 +369,14 @@ bool sendTeleSensorDiscovery(const String &name, const String &entityCategory, c
     return pub(discoveryTopic.c_str(), 0, true, buffer);
 }
 
-#ifdef SENSORS
-bool sendDiscoveryTemperature()
-{
-    if (!dht11Pin && !dht22Pin) return true;
-
-    commonDiscovery();
-    doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " Temperature";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_temperature", ESP.getEfuseMac() >> 24);
-    doc["avty_t"] = "~/status";
-    doc["stat_t"] = "~/temperature";
-    doc["dev_cla"] = "temperature";
-    doc["unit_of_meas"] = "°C";
-    doc["frc_upd"] = true;
-
-    serializeJson(doc, buffer);
-    String discoveryTopic = "homeassistant/sensor/espresense_" + ESPMAC + "/temperature/config";
-    return pub(discoveryTopic.c_str(), 0, true, buffer);
-}
-
-bool sendDiscoveryHumidity()
-{
-    if (!dht11Pin && !dht22Pin) return true;
-
-    commonDiscovery();
-    doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " Humidity";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_humidity", ESP.getEfuseMac() >> 24);
-    doc["avty_t"] = "~/status";
-    doc["stat_t"] = "~/humidity";
-    doc["dev_cla"] = "humidity";
-    doc["unit_of_meas"] = "%";
-    doc["frc_upd"] = true;
-
-    serializeJson(doc, buffer);
-    String discoveryTopic = "homeassistant/sensor/espresense_" + ESPMAC + "/humidity/config";
-    return pub(discoveryTopic.c_str(), 0, true, buffer);
-}
-
-bool sendDiscoveryLux()
-{
-    if (BH1750_I2c.isEmpty()) return true;
-
-    commonDiscovery();
-    doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " Lux";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_lux", ESP.getEfuseMac() >> 24);
-    doc["avty_t"] = "~/status";
-    doc["stat_t"] = "~/lux";
-    doc["dev_cla"] = "illuminance";
-    doc["unit_of_meas"] = "lx";
-    doc["frc_upd"] = true;
-
-    char buffer[1200];
-    serializeJson(doc, buffer);
-    String discoveryTopic = "homeassistant/sensor/espresense_" + ESPMAC + "/lux/config";
-    return pub(discoveryTopic.c_str(), 0, true, buffer);
-}
-
 bool sendDiscoveryBME280Temperature()
 {
     if (BME280_I2c.isEmpty()) return true;
 
     commonDiscovery();
     doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " BME280 Temperature";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_bme280_temperature", ESP.getEfuseMac() >> 24);
+    doc["name"] = "ESPresense " + room + " Temperature";
+    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_temperature", ESP.getEfuseMac() >> 24);
     doc["avty_t"] = "~/status";
     doc["stat_t"] = "~/bme280_temperature";
     doc["dev_cla"] = "temperature";
@@ -504,8 +402,8 @@ bool sendDiscoveryBME280Humidity()
 
     commonDiscovery();
     doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " BME280 Humidity";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_bme280_humidity", ESP.getEfuseMac() >> 24);
+    doc["name"] = "ESPresense " + room + " Humidity";
+    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_humidity", ESP.getEfuseMac() >> 24);
     doc["avty_t"] = "~/status";
     doc["stat_t"] = "~/bme280_humidity";
     doc["dev_cla"] = "humidity";
@@ -531,8 +429,8 @@ bool sendDiscoveryBME280Pressure()
 
     commonDiscovery();
     doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " BME280 Pressure";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_bme280_pressure", ESP.getEfuseMac() >> 24);
+    doc["name"] = "ESPresense " + room + " Pressure";
+    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_pressure", ESP.getEfuseMac() >> 24);
     doc["avty_t"] = "~/status";
     doc["stat_t"] = "~/bme280_pressure";
     doc["dev_cla"] = "pressure";
@@ -551,35 +449,6 @@ bool sendDiscoveryBME280Pressure()
     }
     return false;
 }
-
-bool sendDiscoveryTSL2561Lux()
-{
-    if (TSL2561_I2c.isEmpty()) return true;
-
-    commonDiscovery();
-    doc["~"] = roomsTopic;
-    doc["name"] = "ESPresense " + room + " TSL2561 Lux";
-    doc["uniq_id"] = Sprintf("espresense_%06" PRIx64 "_tsl2561_lux", ESP.getEfuseMac() >> 24);
-    doc["avty_t"] = "~/status";
-    doc["stat_t"] = "~/tsl2561_lux";
-    doc["dev_cla"] = "illuminance";
-    doc["unit_of_meas"] = "lx";
-    doc["frc_upd"] = true;
-
-    char buffer[1200];
-    serializeJson(doc, buffer);
-    String discoveryTopic = "homeassistant/sensor/espresense_" + ESPMAC + "/tsl2561_lux/config";
-
-    for (int i = 0; i < 10; i++)
-    {
-        if (pub(discoveryTopic.c_str(), 0, true, buffer))
-            return true;
-        delay(50);
-    }
-
-    return false;
-}
-#endif
 
 bool sendButtonDiscovery(const String &name, const String &entityCategory)
 {
