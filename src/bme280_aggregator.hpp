@@ -125,7 +125,11 @@ enum {
 	BME280_REGISTER_CONFIG       = 0xF5,
 	BME280_REGISTER_PRESSUREDATA = 0xF7,
 	BME280_REGISTER_TEMPDATA     = 0xFA,
-	BME280_REGISTER_HUMIDDATA    = 0xFD
+	BME280_REGISTER_HUMIDDATA    = 0xFD,
+
+	BME280_CONTROL_SETTING             = 0x25, // Oversampling: 1x P, 1x T, forced
+	BME280_CONTROL_SETTING_HUMIDITY    = 0x01, // Oversampling: 1x H
+	BME280_CONFIG_SETTING              = 0xA0, // Tstandby 1000ms, filter off, 3-wire SPI Disable
 };
 
 /**************************************************************************/
@@ -223,8 +227,8 @@ public:
 	auto sensorID() -> uint32_t;
 
 protected:
-	TwoWire * m_wire;   //!< pointer to a TwoWire object
-	SPIClass *m_spi;    //!< pointer to SPI object
+	TwoWire * m_wire = nullptr;   //!< pointer to a TwoWire object
+	SPIClass *m_spi = nullptr;    //!< pointer to SPI object
 
 	void readCoefficients();
 	auto isReadingCalibration() -> bool;

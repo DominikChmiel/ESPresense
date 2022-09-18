@@ -34,7 +34,11 @@ auto BME280Aggregator::begin(uint8_t addr, TwoWire* theWire) -> bool {
 	bool status = false;
 	m_i2caddr   = addr;
 	m_wire      = theWire;
-	status      = init();
+	if (m_sensorId != 0x60) {
+		status      = init();
+	} else {
+		status = true;
+	}
 
 	if (!status) {
 		Serial.println("Could not find a valid BME280 sensor, check wiring, address, sensor ID!");
@@ -78,7 +82,7 @@ auto BME280Aggregator::init() -> bool {
 	readCoefficients();   // read trimming parameters, see DS 4.2.2
 
 	// Change to lower sampling modes then default
-	setSampling(MODE_NORMAL, SAMPLING_X8, SAMPLING_X4, SAMPLING_X4, FILTER_OFF, STANDBY_MS_0_5);
+	setSampling(MODE_FORCED, SAMPLING_X1, SAMPLING_X1, SAMPLING_X1, FILTER_OFF, STANDBY_MS_1000);
 
 	delay(100);
 
@@ -357,6 +361,14 @@ auto BME280Aggregator::readAllSensors() -> sensor_data {
 	/* Read out 0xF7 to 0xFE */
 
 	sensor_regs raw_regs;
+
+	// set to forced mode, i.e. "take next measurement"
+	write8(BME280_REGISTER_CONTROL, m_measReg.get());
+
+	// wait until measurement has been completed, otherwise we would read
+	// the values from the last measurement
+	while (read8(BME280_REGISTER_STATUS) & 0x08)
+		delay(1);
 
 	m_wire->beginTransmission(m_i2caddr);
 	m_wire->write(static_cast<uint8_t>(BME280_REGISTER_PRESSUREDATA));
